@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Training Ground</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">training<span>.ground</span></div>
+      <nav id="nav">
+        <button data-view="learn" class="active">learn</button>
+        <button data-view="focus">focus</button>
+        <button data-view="library">library</button>
+        <button data-view="progress">progress</button>
+        <button data-view="settings">settings</button>
+      </nav>
+      <div class="status" title="local model status">
+        <span id="llm-dot" class="dot"></span>
+        <span id="llm-label">…</span>
+      </div>
+    </header>
+    <main id="app"><div class="center muted">loading…</div></main>
+    <div id="toast" hidden></div>
+  </body>
+</html>
