@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-  AppStats, Health, Hit, IndexReport, Lesson, MemInfo, ProcInfo, ResourceHit, RunResult, TrackInfo,
+  AppStats, DeepFocusPlan, DeepFocusResult, FocusMode, FocusSession, Health, Hit, IndexReport, Lesson, MemInfo,
+  ProcInfo, ResourceHit, RestoreResult, RunResult, TrackInfo,
 } from "./store";
 
 export const api = {
@@ -12,6 +13,12 @@ export const api = {
   suspend: (pid: number, extra: string[]) => invoke<number>("suspend_process", { pid, extra }),
   resume: (pid: number, extra: string[]) => invoke<number>("resume_process", { pid, extra }),
   trim: (pid: number, extra: string[]) => invoke<boolean>("trim_process", { pid, extra }),
+  // deep focus: one reversible sweep — suspend (instant restore) or close (frees RAM, relaunch on restore)
+  deepFocusScan: (extra: string[]) => invoke<DeepFocusPlan>("deep_focus_scan", { extra }),
+  deepFocusApply: (pids: number[], extra: string[], includeShell: boolean, mode: FocusMode) =>
+    invoke<DeepFocusResult>("deep_focus_apply", { pids, extra, includeShell, mode }),
+  focusSession: () => invoke<FocusSession>("focus_session"),
+  focusRestore: () => invoke<RestoreResult>("focus_restore"),
   // sandbox
   runCode: (language: string, code: string, tests?: string, timeoutMs?: number) =>
     invoke<RunResult>("run_code", { req: { language, code, tests, timeoutMs } }),

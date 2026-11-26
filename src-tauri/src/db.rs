@@ -18,6 +18,22 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
     conn.pragma_update(None, "journal_mode", "WAL").map_err(|e| e.to_string())?;
     conn.pragma_update(None, "foreign_keys", "ON").map_err(|e| e.to_string())?;
     conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+    // Migration: fetch_cache gained a `title` column (cached hits used to drop the title).
+    let has_title: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('fetch_cache') WHERE name='title'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
+        .unwrap_or(true);
+    if !has_title {
+        conn.execute_batch(
+            "ALTER TABLE fetch_cache ADD COLUMN title TEXT NOT NULL DEFAULT '';
+             UPDATE fetch_cache SET title = '' WHERE title IS NULL;",
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(conn)
 }
 
@@ -57,10 +73,47 @@ CREATE TABLE IF NOT EXISTS chunks(
 );
 CREATE TABLE IF NOT EXISTS fetch_cache(
   url TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
   text TEXT NOT NULL,
   fetched_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS focus_session(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pid INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  exe TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 ";
+
+// ---- focus session (reversible deep focus) --------------------------------
+// One row per process a sweep touched, so the app can bring it back after a
+// restart of the app itself. `mode` is "suspended" (resume) or "closed" (relaunch).
+
+pub fn session_clear(db: &Connection) -> Result<(), String> {
+    db.execute("DELETE FROM focus_session", []).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn session_add(db: &Connection, pid: u32, name: &str, exe: &str, mode: &str) -> Result<(), String> {
+    db.execute(
+        "INSERT INTO focus_session(pid, name, exe, mode, created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![pid, name, exe, mode, now()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn session_entries(db: &Connection) -> Result<Vec<(u32, String, String, String)>, String> {
+    let mut stmt = db
+        .prepare("SELECT pid, name, exe, mode FROM focus_session ORDER BY id")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

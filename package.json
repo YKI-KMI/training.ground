@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev:cdp": "node dev-cdp.mjs",
+    "e2e": "node e2e.mjs"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",

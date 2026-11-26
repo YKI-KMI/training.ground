@@ -55,6 +55,10 @@ h1.title { font-size: 20px; margin: 4px 0 16px; font-weight: 600; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #0c120e; font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.danger { color: var(--danger); }
+
+.ok-text { color: var(--ok, #7dd87d); }
+.card.deep { border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.card.deep .btn.danger { border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
 .btn.ghost { background: none; }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .btn.nudge { animation: nudge 1.6s ease-in-out infinite; border-color: var(--warn); }

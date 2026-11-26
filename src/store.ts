@@ -2,6 +2,14 @@ export type View = "learn" | "lesson" | "focus" | "library" | "progress" | "sett
 
 export interface ProcInfo { pid: number; name: string; memMb: number; exe: string; protected: boolean; reason: string }
 export interface MemInfo { totalMb: number; usedMb: number; availableMb: number }
+export interface DeepPlanItem { pid: number; name: string; memMb: number; exe: string; kind: "bloat" | "app" | "shell" }
+export interface DeepFocusPlan { items: DeepPlanItem[]; totalMb: number; bloatCount: number; protectedCount: number; shell: DeepPlanItem | null; availableMb: number }
+export interface DeepFailItem { pid: number; name: string; err: string }
+export interface DeepFocusResult { closed: number; suspended: number; failed: DeepFailItem[]; freedMb: number; availableMb: number }
+export type FocusMode = "suspend" | "close";
+export interface FocusSessionEntry { pid: number; name: string; exe: string; mode: FocusMode }
+export interface FocusSession { active: boolean; entries: FocusSessionEntry[]; suspended: number; closed: number }
+export interface RestoreResult { resumed: number; relaunched: number; failed: DeepFailItem[]; availableMb: number }
 export interface RunResult { ok: boolean; exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; durationMs: number; interpreter: string }
 export interface TrackInfo { id: number; name: string; language: string; lessons: number; done: number }
 export interface Lesson { id: number; trackId: number; idx: number; title: string; status: string; payload: string }

@@ -32,6 +32,10 @@ pub fn run() {
             focus::suspend_process,
             focus::resume_process,
             focus::trim_process,
+            focus::deep_focus_scan,
+            focus::deep_focus_apply,
+            focus::focus_session,
+            focus::focus_restore,
             // sandbox
             sandbox::run_code,
             // curriculum ledger

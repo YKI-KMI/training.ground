@@ -34,6 +34,29 @@ export async function renderFocus(app: HTMLElement): Promise<void> {
         protected processes (your tools, OS, this app) can never be closed.
       </div>
     </div>
+    <div class="card deep">
+      <h3>deep focus — the full sweep</h3>
+      <p class="muted" style="margin:4px 0 8px;font-size:13.5px">
+        sweeps <b>every</b> non-essential process: bloatware updaters, background agents, all user apps.
+        <b>suspend</b> pauses them (instant restore, RAM stays used) or <b>close</b> ends them (RAM freed, relaunched on restore).
+        everything touched is remembered, so one click brings it all back — no reboot.
+        protected (OS core, this app, your dev tools, Ollama) are never touched.
+      </p>
+      <div class="row" id="deep-row">
+        <button class="btn" id="deep-scan">scan what a sweep would close</button>
+        <label style="font-size:13px;margin-left:8px">mode
+          <select id="deep-mode">
+            <option value="close">close — frees RAM</option>
+            <option value="suspend">suspend — instant restore</option>
+          </select>
+        </label>
+        <label style="font-size:13px;margin-left:8px">
+          <input type="checkbox" id="deep-shell"> include the shell (explorer/desktop)
+        </label>
+      </div>
+      <div id="deep-session" style="margin-top:8px"></div>
+      <div id="deep-report" style="margin-top:8px"></div>
+    </div>
     <div class="card">
       <div class="spread" style="margin-bottom:10px">
         <div class="row">
@@ -127,6 +150,133 @@ export async function renderFocus(app: HTMLElement): Promise<void> {
     toast(closed ? `closed ${closed} process${closed > 1 ? "es" : ""} · ~${freed} MB reported` : "nothing closed", closed ? "ok" : "");
     await refresh();
   };
+
+  // ---- deep focus -------------------------------
+  type DeepPlan = Awaited<ReturnType<typeof api.deepFocusScan>>;
+  type Session = Awaited<ReturnType<typeof api.focusSession>>;
+  let deepPlan: DeepPlan | null = null;
+  let deepArmed = false;
+  const deepReport = app.querySelector<HTMLDivElement>("#deep-report")!;
+  const deepSession = app.querySelector<HTMLDivElement>("#deep-session")!;
+  const deepBtn = app.querySelector<HTMLButtonElement>("#deep-scan")!;
+  const shellCb = app.querySelector<HTMLInputElement>("#deep-shell")!;
+  const modeSel = app.querySelector<HTMLSelectElement>("#deep-mode")!;
+
+  const resetDeepBtn = () => {
+    deepArmed = false;
+    deepBtn.disabled = false;
+    deepBtn.className = "btn";
+    deepBtn.textContent = "scan what a sweep would close";
+  };
+
+  const renderSession = (s: Session) => {
+    if (!s.active) { deepSession.innerHTML = ""; return; }
+    const names = s.entries.slice(0, 8).map((e) => esc(e.name)).join(", ");
+    deepSession.innerHTML = `
+      <div class="spread" style="align-items:center">
+        <div>
+          <b>deep focus active</b> — ${s.suspended} paused · ${s.closed} closed
+          <div class="muted" style="font-size:12.5px">${names}${s.entries.length > 8 ? ` … +${s.entries.length - 8} more` : ""}</div>
+        </div>
+        <button class="btn primary" id="deep-restore">end deep focus &amp; restore</button>
+      </div>`;
+    deepSession.querySelector<HTMLButtonElement>("#deep-restore")!.onclick = async (ev) => {
+      const b = ev.currentTarget as HTMLButtonElement;
+      b.disabled = true;
+      b.textContent = "restoring…";
+      try {
+        const r = await api.focusRestore();
+        const fails = r.failed.slice(0, 5).map((f) => `${esc(f.name)} (${esc(f.err)})`).join(", ");
+        deepReport.innerHTML = `
+          <div><b class="ok-text">restored</b> · resumed ${r.resumed} · relaunched ${r.relaunched} · now <b>${r.availableMb} MB</b> available</div>
+          ${r.failed.length ? `<div class="muted" style="font-size:12.5px;margin-top:4px">${r.failed.length} could not return: ${fails}${r.failed.length > 5 ? " …" : ""}</div>` : ""}`;
+        resetDeepBtn();
+        await loadSession();
+        await refresh();
+      } catch (e) {
+        b.disabled = false;
+        b.textContent = "end deep focus & restore";
+        toast(String(e).replace(/^Error: /, ""), "err");
+      }
+    };
+  };
+
+  const loadSession = async () => {
+    try { renderSession(await api.focusSession()); }
+    catch { deepSession.innerHTML = ""; }
+  };
+
+  const renderDeepReport = () => {
+    if (!deepPlan) return;
+    const items = deepPlan.items;
+    const preview = items.slice(0, 10).map((i) => esc(i.name)).join(", ");
+    deepReport.innerHTML = `
+      <div class="spread">
+        <div>
+          <b>${items.length}</b> processes · <b>${deepPlan.totalMb} MB</b> RAM claimable ·
+          <b>${deepPlan.bloatCount}</b> bloat · <b>${deepPlan.protectedCount}</b> protected kept
+          ${deepPlan.shell ? ' · <span class="muted">includes shell option</span>' : ""}
+        </div>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-top:4px">biggest: ${preview}${items.length > 10 ? ` … +${items.length - 10} more` : ""}</div>`;
+    deepBtn.className = "btn danger";
+    deepBtn.textContent = `sweep ${items.length} apps · ~${deepPlan.totalMb} MB — click twice to confirm`;
+  };
+
+  deepBtn.onclick = async () => {
+    if (!deepPlan) {
+      deepBtn.disabled = true;
+      deepBtn.textContent = "scanning…";
+      try {
+        deepPlan = await api.deepFocusScan(extraProtected());
+        renderDeepReport();
+      } catch (e) {
+        deepReport.innerHTML = `<span style="color:var(--danger)">${esc(String(e).replace(/^Error: /, ""))}</span>`;
+        resetDeepBtn();
+      }
+      return;
+    }
+    const mode = modeSel.value as "close" | "suspend";
+    if (!deepArmed) {
+      deepArmed = true;
+      deepBtn.textContent = mode === "close"
+        ? "⚠ click again to close them NOW — restore brings them back"
+        : "⚠ click again to suspend them NOW — restore resumes them";
+      setTimeout(() => {
+        if (deepArmed && deepPlan) {
+          deepArmed = false;
+          renderDeepReport();
+        }
+      }, 5000);
+      return;
+    }
+    deepArmed = false;
+    deepBtn.disabled = true;
+    deepBtn.textContent = "sweeping…";
+    const pids = deepPlan.items.map((i) => i.pid);
+    if (shellCb.checked && deepPlan.shell) pids.push(deepPlan.shell.pid);
+    try {
+      const r = await api.deepFocusApply(pids, extraProtected(), shellCb.checked && !!deepPlan.shell, mode);
+      const fails = r.failed.slice(0, 5).map((f) => `${esc(f.name)} (${esc(f.err)})`).join(", ");
+      deepReport.innerHTML = `
+        <div><b class="ok-text">swept: ${r.closed} closed · ${r.suspended} suspended</b> of ${pids.length}
+        · now <b>${r.availableMb} MB</b> available${r.closed ? ` (freed ~${Math.max(0, r.freedMb)} MB)` : ""}</div>
+        ${r.failed.length ? `<div class="muted" style="font-size:12.5px;margin-top:4px">${r.failed.length} refused: ${fails}${r.failed.length > 5 ? " …" : ""}</div>` : ""}
+        <div class="muted" style="margin-top:4px;font-size:12.5px">everything swept is in the restore list — one click brings it back.</div>`;
+      deepPlan = null;
+      shellCb.checked = false;
+      state.focusSel.clear();
+      resetDeepBtn();
+      await loadSession();
+      await refresh();
+    } catch (e) {
+      deepReport.innerHTML = `<span style="color:var(--danger)">${esc(String(e).replace(/^Error: /, ""))}</span>`;
+      deepPlan = null;
+      resetDeepBtn();
+    }
+  };
+
+  await loadSession();
   await refresh();
 }
 

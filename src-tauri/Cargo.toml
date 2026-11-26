@@ -9,6 +9,30 @@ edition = "2021"
 name = "training_ground_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The `windows` crates compile billions of API stubs and OOM rustc (16 GB
+# machine) when debug info is attached. Strip it for the giant members.
+# NOTE: widening this list to the whole `windows-*` family forces a full
+# dependency-tree rebuild, which this machine can only afford when commit
+# charge is low — do it together with a `cargo test -j 1` session.
+[profile.dev.package."windows"]
+debug = false
+[profile.dev.package."windows-sys"]
+debug = false
+[profile.test.package."windows"]
+debug = false
+[profile.test.package."windows-sys"]
+debug = false
+[profile.dev.package."tauri"]
+debug = 1
+[profile.test.package."tauri"]
+debug = 1
+# Line-tables-only debug info across dev/test: full debuginfo=2 blows the
+# commit limit on this 16 GB machine when all deps build for tests.
+[profile.dev]
+debug = 1
+[profile.test]
+debug = 1
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

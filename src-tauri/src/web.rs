@@ -40,7 +40,7 @@ pub fn strip_html(input: &str) -> String {
     let rules = RULES.get_or_init(|| {
         let mk = |p: &str, rep: &'static str| (Regex::new(p).expect("valid regex"), rep);
         vec![
-            mk(r"(?is)<(script|style|noscript|head|nav|footer)[^>]*>.*?</[a-z]+>", " "),
+            mk(r"(?is)<(script|style|noscript|head|nav|footer|svg|iframe|form|button|select)[^>]*>.*?</[a-z]+>", " "),
             mk(r"(?is)<!--.*?-->", " "),
             mk(r"(?is)<br\s*/?>", "\n"),
             mk(r"(?is)</(p|div|li|h[1-6]|tr|section|article|pre|ul|ol|table)>", "\n"),
@@ -142,22 +142,22 @@ pub async fn fetch_net(url: &str) -> Result<(String, String), String> {
     Ok((title, truncate(text)))
 }
 
-pub fn cache_put(conn: &rusqlite::Connection, url: &str, text: &str) {
+pub fn cache_put(conn: &rusqlite::Connection, url: &str, title: &str, text: &str) {
     conn.execute(
-        "INSERT INTO fetch_cache(url, text, fetched_at) VALUES(?1,?2,?3)
-         ON CONFLICT(url) DO UPDATE SET text=excluded.text, fetched_at=excluded.fetched_at",
-        rusqlite::params![url, text, now()],
+        "INSERT INTO fetch_cache(url, title, text, fetched_at) VALUES(?1,?2,?3,?4)
+         ON CONFLICT(url) DO UPDATE SET title=excluded.title, text=excluded.text, fetched_at=excluded.fetched_at",
+        rusqlite::params![url, title, text, now()],
     )
     .ok();
 }
 
-pub fn cache_get(conn: &rusqlite::Connection, url: &str) -> Option<String> {
-    let (text, at): (String, i64) = conn
-        .query_row("SELECT text, fetched_at FROM fetch_cache WHERE url=?1", [url], |r| {
-            Ok((r.get(0)?, r.get(1)?))
+pub fn cache_get(conn: &rusqlite::Connection, url: &str) -> Option<(String, String)> {
+    let (title, text, at): (String, String, i64) = conn
+        .query_row("SELECT title, text, fetched_at FROM fetch_cache WHERE url=?1", [url], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })
         .ok()?;
-    (now() - at < CACHE_TTL_SECS).then_some(text)
+    (now() - at < CACHE_TTL_SECS).then_some((title, text))
 }
 
 #[tauri::command(async)]
@@ -166,13 +166,13 @@ pub async fn fetch_url(url: String, state: tauri::State<'_, AppState>) -> Result
         let db = state.db.lock().map_err(|e| e.to_string())?;
         cache_get(&db, &url)
     };
-    if let Some(text) = cached {
-        return Ok(FetchResult { title: String::new(), url, text, cached: true });
+    if let Some((title, text)) = cached {
+        return Ok(FetchResult { title, url, text, cached: true });
     }
     let (title, text) = fetch_net(&url).await?;
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        cache_put(&db, &url, &text);
+        cache_put(&db, &url, &title, &text);
     }
     Ok(FetchResult { title, url, text, cached: false })
 }
@@ -309,10 +309,15 @@ mod tests {
     #[test]
     fn strip_html_removes_noise() {
         let html = r#"<html><head><title>Hi &amp; Bye</title><style>b{color:red}</style></head>
-            <body><script>alert(1)</script><h1>Header</h1><p>Some &quot;text&quot; here.</p></body></html>"#;
+            <body><script>alert(1)</script><h1>Header</h1><p>Some &quot;text&quot; here.</p>
+            <svg><path d="M0 0"/><circle>icon junk</circle></svg>
+            <form><select><option>dropdown garbage</option></select></form></body></html>"#;
         let out = strip_html(html);
         assert!(!out.contains("alert"), "{out}");
         assert!(!out.contains("color:red"), "{out}");
+        assert!(!out.contains("M0 0"), "{out}");
+        assert!(!out.contains("icon junk"), "{out}");
+        assert!(!out.contains("dropdown garbage"), "{out}");
         assert!(out.contains("Header"), "{out}");
         assert!(out.contains("Some \"text\" here."), "{out}");
     }
@@ -321,8 +326,9 @@ mod tests {
     fn cache_roundtrip() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(crate::db::SCHEMA).unwrap();
-        cache_put(&conn, "https://x", "hello");
-        assert_eq!(cache_get(&conn, "https://x").as_deref(), Some("hello"));
+        cache_put(&conn, "https://x", "Example Title", "hello");
+        let (t, body) = cache_get(&conn, "https://x").unwrap();
+        assert_eq!((t.as_str(), body.as_str()), ("Example Title", "hello"));
         assert_eq!(cache_get(&conn, "https://none"), None);
     }
 
